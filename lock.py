@@ -31,8 +31,8 @@ class GpioLock:
             return
 
         try:
-            # マイクロスイッチ(NO)。施錠中だけ GND とつながる
-            self.switch = Button(switch_pin, pull_up=True, bounce_time=0.05)
+            # マイクロスイッチ(NO)。施錠中だけ GND とつながる(外付け 10kΩ でプルアップ)
+            self.switch = Button(switch_pin, pull_up=None, active_state=False, bounce_time=0.05)
         except Exception:
             # スイッチがなくても解錠はできるので続ける
             log.exception("マイクロスイッチ(GPIO%s)が使えません", switch_pin)
@@ -59,16 +59,6 @@ class GpioLock:
             raise LockError(str(e))
 
         log.info("解錠パルスを %s 回出しました", config.UNLOCK_PULSE_COUNT)
-
-    def open_for(self, seconds):
-        # check_lock.py 用。seconds 秒 ON にし続ける
-        if not self.ready:
-            raise LockError(self.error)
-        self.device.on()
-        try:
-            time.sleep(seconds)
-        finally:
-            self.device.off()
 
     def close(self):
         if self.device is not None:

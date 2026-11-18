@@ -1,26 +1,19 @@
-# LE-53 のマイクロスイッチの確認
-#   python check_switch.py            GPIO23
-#   python check_switch.py --pin 24   別の GPIO
-# つなぎ方: COM → GND、NO → GPIO(5V はつながない)。施錠中だけ導通する。
-# 状態が変わるたびに表示する。Ctrl+C で終了。
+# LE-53 のマイクロスイッチの確認(Ctrl+C で終了)
+#   python check_switch.py
+# つなぎ方: COM → GND、NO → GPIO(外付け 10kΩ で 3.3V にプルアップ)。施錠中だけ導通する。
 
-import argparse
 import time
 
 import config
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--pin", type=int, default=config.LOCK_SWITCH_GPIO_PIN)
-args = parser.parse_args()
-
 try:
     from gpiozero import Button
-    switch = Button(args.pin, pull_up=True, bounce_time=0.05)
+    switch = Button(config.LOCK_SWITCH_GPIO_PIN, pull_up=None, active_state=False, bounce_time=0.05)
 except Exception as e:
     print("GPIO が使えません:", e)
     raise SystemExit(1)
 
-print(f"GPIO{args.pin} を見ています(Ctrl+C で終了)")
+print(f"GPIO{config.LOCK_SWITCH_GPIO_PIN} を見ています(Ctrl+C で終了)")
 last = None
 try:
     while True:

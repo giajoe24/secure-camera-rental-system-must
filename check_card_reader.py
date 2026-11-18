@@ -17,6 +17,6 @@ try:
             print("カードID:", card_id)
 except CardReaderError as error:
     print(error)
-    print("USB の接続と、README の「RC-S380 の準備」を確認してください。")
+    print("USB の接続と、udev の設定(sudo python3 -m nfc で確認)を見てください。")
 except KeyboardInterrupt:
     pass

@@ -21,8 +21,6 @@ UNLOCK_PULSE_COUNT = 1
 UNLOCK_PULSE_ON_SECONDS = 0.005
 UNLOCK_PULSE_OFF_SECONDS = 0.2    # 2回以上出すときの間隔
 
-UNLOCK_SECONDS = 10       # check_lock.py で ON にし続ける秒数
-
 # LE-53 のマイクロスイッチ(COM → GND、NO → この GPIO)
 LOCK_SWITCH_GPIO_PIN = 23
 
