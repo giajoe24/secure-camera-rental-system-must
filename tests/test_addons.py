@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import admin_screen
+import export
 import extend
 import overdue_record
 from db import Database, RentalError, minutes_past
@@ -112,6 +113,19 @@ class AddonTest(unittest.TestCase):
 
         admin_screen.set_admin(self.database, self.admin, False)
         self.assertEqual(admin_screen.count_admins(self.database), 0)
+
+
+    # ---- ファイルに保存 ----
+
+    def test_export_to_csv(self):
+        self.database.borrow(self.mori, 30, do_nothing, now=NOW)
+        self.database.return_camera(self.mori, do_nothing, now=NOW + timedelta(minutes=55))
+        path, count = export.export_to_csv(self.database, Path(self.folder) / "exports")
+
+        lines = path.read_text(encoding="utf-8-sig").splitlines()
+        self.assertEqual(count, 1)
+        self.assertEqual(lines[0].split(",")[-1], "延滞(分)")
+        self.assertEqual(lines[1].split(",")[-1], "25")
 
 
 if __name__ == "__main__":

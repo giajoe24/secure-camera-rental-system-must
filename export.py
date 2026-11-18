@@ -1,15 +1,36 @@
-# 追加機能: 履歴を Excel(.xlsx)で exports/ に保存する
-#   python excel_export.py
-# openpyxl が必要(pip install openpyxl)
+# 追加機能: 貸出の記録をファイルに保存する(管理画面の「ファイルに保存」から使う)
+# CSV はいつでも、Excel は openpyxl が入っているときだけ作る
 
+import csv
 from datetime import datetime
 
 import config
 import overdue_record
-from db import Database, minutes_past, parse_time
+from db import minutes_past, parse_time
 
 HEADERS = ["貸出ID", "社員番号", "氏名", "貸出日時", "返却予定", "返却日時", "状態"]
-WIDTHS = [8, 12, 18, 18, 18, 18, 10]
+WIDTHS = [8, 12, 18, 18, 18, 18, 10]   # Excel の列の幅
+
+
+def can_make_excel():
+    try:
+        import openpyxl  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+def make_headers():
+    headers = list(HEADERS)
+    if config.USE_OVERDUE_RECORD:
+        headers.append("延滞(分)")
+    return headers
+
+
+def state_of(rental):
+    if rental["returned_at"] is None:
+        return "貸出中"
+    return "返却済み"
 
 
 def is_late(rental, now):
@@ -21,15 +42,33 @@ def is_late(rental, now):
     return minutes_past(parse_time(rental["due_at"]), end) > 0
 
 
+def export_to_csv(database, output_dir):
+    output_dir.mkdir(exist_ok=True)
+    path = output_dir / datetime.now().strftime("rental_log_%Y%m%d_%H%M%S.csv")
+    rentals = database.list_rentals()
+
+    # utf-8-sig にすると Excel で開いても文字化けしない
+    with open(path, "w", encoding="utf-8-sig", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(make_headers())
+        for rental in rentals:
+            row = [rental["id"], rental["employee_number"], rental["name"], rental["rented_at"],
+                   rental["due_at"], rental["returned_at"] or "", state_of(rental)]
+            if config.USE_OVERDUE_RECORD:
+                row.append(overdue_record.late_text(rental))
+            writer.writerow(row)
+
+    return path, len(rentals)
+
+
 def export_to_excel(database, output_dir):
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill
     from openpyxl.utils import get_column_letter
 
-    headers = list(HEADERS)
+    headers = make_headers()
     widths = list(WIDTHS)
     if config.USE_OVERDUE_RECORD:
-        headers.append("延滞(分)")
         widths.append(10)
 
     book = Workbook()
@@ -49,15 +88,12 @@ def export_to_excel(database, output_dir):
     rentals = database.list_rentals()
 
     for rental in rentals:
-        if rental["returned_at"] is None:
-            state = "貸出中"
-            returned_at = None
-        else:
-            state = "返却済み"
+        returned_at = None
+        if rental["returned_at"] is not None:
             returned_at = parse_time(rental["returned_at"])
 
         row = [rental["id"], rental["employee_number"], rental["name"],
-               parse_time(rental["rented_at"]), parse_time(rental["due_at"]), returned_at, state]
+               parse_time(rental["rented_at"]), parse_time(rental["due_at"]), returned_at, state_of(rental)]
         if config.USE_OVERDUE_RECORD:
             row.append(overdue_record.late_minutes_of(rental))
         sheet.append(row)
@@ -76,16 +112,3 @@ def export_to_excel(database, output_dir):
     path = output_dir / now.strftime("rental_log_%Y%m%d_%H%M%S.xlsx")
     book.save(path)
     return path, len(rentals)
-
-
-if __name__ == "__main__":
-    try:
-        import openpyxl  # noqa: F401
-    except ImportError:
-        print("openpyxl が入っていません: pip install openpyxl")
-        raise SystemExit(1)
-
-    database = Database(config.DB_PATH)
-    database.create_tables()
-    path, count = export_to_excel(database, config.EXPORT_DIR)
-    print(f"{count} 件を保存しました: {path}")

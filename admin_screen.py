@@ -1,23 +1,25 @@
 # 追加機能: 管理画面(config.USE_ADMIN_SCREEN)
 # ホームの「管理者」→ 管理者の社員証 → メニュー(利用者の登録 / 一覧 / 貸出の履歴)
-# 管理者は admins テーブルに入れる。最初の1人は python register_user.py admin 社員番号
-# 管理者がいなければ「管理者」ボタンは出ない
+# 管理者は admins テーブルに入れる。
+# 管理者がまだ1人もいないときは、「管理者」から最初の管理者を登録する(初期設定)
 
 import logging
 
 import customtkinter
 
 import config
-import excel_export
+import export
 import overdue_record
 from db import RentalError, normalize_card_id, parse_time
 from gui_parts import (BLUE_TAG, GREEN_TAG, RED, SUB_TEXT_COLOR, TEXT_COLOR, WHITE, WHITE_BUTTON_BORDER_COLOR,
-                       Screen, format_date_time, make_font, make_label, make_line, make_tag, make_white_button)
+                       Screen, disable_button, format_date_time, make_font, make_label, make_line, make_tag,
+                       make_white_button)
 
 log = logging.getLogger(__name__)
 
 ADMIN_STEPS = ["管理者の社員証", "管理メニュー"]
 REGISTER_STEPS = ["新しい社員証", "社員番号・氏名", "完了"]
+FIRST_ADMIN_STEPS = ["管理者の社員証", "社員番号・氏名", "完了"]
 
 
 # ---- DB ----
@@ -41,15 +43,10 @@ def set_admin(database, user, admin):
         database.execute("DELETE FROM admins WHERE user_id = ?", (user["id"],))
 
 
-def find_user_by_employee_number(database, employee_number):
-    return database.select_one("SELECT * FROM users WHERE employee_number = ?", (employee_number,))
-
-
 def delete_user(database, user):
     # 貸出の記録がある人は、記録の名前が消えないよう行は残してカードだけ使えなくする
     if is_admin(database, user):
-        raise RentalError("消せません",
-                          f"管理者は消せません。先に python register_user.py unadmin {user['employee_number']} を実行してください。")
+        raise RentalError("消せません", "管理者は消せません。先に「管理者をやめる」を押してください。")
 
     conn = database.open()
     try:
@@ -71,10 +68,30 @@ def delete_user(database, user):
 # ---- ホームから入る ----
 
 def add_button_on_home(home):
-    if count_admins(home.app.database) == 0:
-        return
     home.show_footer()
-    home.add_left_button("管理者", lambda: home.app.scan_card(ADMIN_STEPS, admin_card_read))
+    home.add_left_button("管理者", lambda: start_admin(home.app))
+
+
+def start_admin(app):
+    if count_admins(app.database) == 0:
+        app.scan_card(FIRST_ADMIN_STEPS, first_admin_card_read)   # 初期設定
+    else:
+        app.scan_card(ADMIN_STEPS, admin_card_read)
+
+
+def first_admin_card_read(app, card_id):
+    # 最初の管理者の社員証が読めたら呼ばれる
+    if count_admins(app.database) > 0:
+        raise RentalError("管理者はもう登録されています", "管理者の社員証で入ってください。")
+
+    user = app.database.find_user_by_card(card_id)
+    if user is not None:
+        # もう利用者として登録されている人なら、そのまま管理者にする
+        set_admin(app.database, user, True)
+        log.info("最初の管理者を登録: %s", user["employee_number"])
+        app.show(AdminMenuScreen)
+    else:
+        app.show(RegisterScreen, card_id=normalize_card_id(card_id), first_admin=True)
 
 
 def admin_card_read(app, card_id):
@@ -119,12 +136,20 @@ class AdminMenuScreen(Screen):
 
 
 class RegisterScreen(Screen):
-    def __init__(self, app, card_id):
+    # first_admin=True: 初期設定(最初の管理者を登録する)
+    def __init__(self, app, card_id, first_admin=False):
         super().__init__(app)
         self.card_id = card_id
-        self.show_steps(REGISTER_STEPS, 1)
-        self.show_title("社員番号と氏名を入れてください", f"カードID  {card_id}")
-        self.add_left_button("やめる", lambda: app.show(AdminMenuScreen))
+        self.first_admin = first_admin
+
+        if first_admin:
+            self.show_steps(FIRST_ADMIN_STEPS, 1)
+            self.show_title("最初の管理者を登録します", f"社員番号と氏名を入れてください。   カードID  {card_id}")
+            self.add_left_button("やめる", app.go_home)
+        else:
+            self.show_steps(REGISTER_STEPS, 1)
+            self.show_title("社員番号と氏名を入れてください", f"カードID  {card_id}")
+            self.add_left_button("やめる", lambda: app.show(AdminMenuScreen))
         self.add_right_button("登録する", self.register)
 
         form = customtkinter.CTkFrame(self.content_area, fg_color="transparent")
@@ -143,7 +168,8 @@ class RegisterScreen(Screen):
         self.admin_checkbox = customtkinter.CTkCheckBox(form, text="管理者にする", font=make_font(19),
                                                         text_color=TEXT_COLOR, fg_color=RED, hover_color=RED,
                                                         checkbox_width=30, checkbox_height=30)
-        self.admin_checkbox.grid(row=2, column=1, sticky="w", pady=10)
+        if not first_admin:   # 初期設定のときは必ず管理者なので出さない
+            self.admin_checkbox.grid(row=2, column=1, sticky="w", pady=10)
 
         self.error_label = make_label(self.content_area, "", color=RED)
         self.error_label.pack(anchor="w", pady=(16, 0))
@@ -170,11 +196,14 @@ class RegisterScreen(Screen):
             return
         log.info("利用者を登録: %s", number)
 
-        if self.admin_checkbox.get() == 1:
+        if self.first_admin or self.admin_checkbox.get() == 1:
             set_admin(self.app.database, self.app.database.find_user_by_card(self.card_id), True)
             log.info("管理者にした: %s", number)
 
-        self.app.show(RegisterDoneScreen, name=name)
+        if self.first_admin:
+            self.app.show(AdminMenuScreen)
+        else:
+            self.app.show(RegisterDoneScreen, name=name)
 
 
 class RegisterDoneScreen(Screen):
@@ -226,18 +255,39 @@ class UserListScreen(Screen):
         self.show_title("利用者の一覧", f"{len(users)} 人")
         self.add_left_button("メニューに戻る", lambda: app.show(AdminMenuScreen))
 
-        table = make_table(self.content_area, ["社員番号", "氏名", "カードID", ""], [160, 0, 220, 140])
+        table = make_table(self.content_area, ["社員番号", "氏名", "カードID", "", ""], [140, 0, 200, 190, 130])
         for i, user in enumerate(users):
             if is_admin(app.database, user):
-                last = make_tag(table, "管理者", BLUE_TAG)   # 管理者は消せない
+                admin_button = make_white_button(table, "管理者をやめる", None, width=170, height=44)
+                delete_button = make_tag(table, "管理者", BLUE_TAG)   # 管理者は消せない
             else:
-                last = make_white_button(table, "消す", None, width=120, height=44)
-                last.configure(font=make_font(17), command=lambda b=last, u=user: self.press_delete(b, u))
-            add_table_row(table, i, [user["employee_number"], user["name"], user["card_id"], last])
+                admin_button = make_white_button(table, "管理者にする", None, width=170, height=44)
+                delete_button = make_white_button(table, "消す", None, width=110, height=44)
+                delete_button.configure(font=make_font(17),
+                                        command=lambda b=delete_button, u=user: self.press_delete(b, u))
+            admin_button.configure(font=make_font(17), command=lambda u=user: self.press_admin(u))
+
+            add_table_row(table, i, [user["employee_number"], user["name"], user["card_id"],
+                                     admin_button, delete_button])
 
         if not users:
-            make_label(table, "まだ誰も登録されていません。", color=SUB_TEXT_COLOR).grid(row=2, column=0, columnspan=4,
+            make_label(table, "まだ誰も登録されていません。", color=SUB_TEXT_COLOR).grid(row=2, column=0, columnspan=5,
                                                                                     sticky="w", padx=8, pady=20)
+
+    def press_admin(self, user):
+        try:
+            if is_admin(self.app.database, user):
+                if count_admins(self.app.database) == 1:
+                    raise RentalError("やめられません", "管理者が1人もいなくなります。先にほかの人を管理者にしてください。")
+                set_admin(self.app.database, user, False)
+                log.info("管理者をやめた: %s", user["employee_number"])
+            else:
+                set_admin(self.app.database, user, True)
+                log.info("管理者にした: %s", user["employee_number"])
+        except Exception as e:
+            self.app.show_error(e, retry=lambda: self.app.show(UserListScreen), retry_text="一覧に戻る")
+            return
+        self.app.show(UserListScreen)
 
     def press_delete(self, button, user):
         # 1回目は「本当に消す」に変えるだけ。2回目で消す
@@ -261,12 +311,7 @@ class HistoryScreen(Screen):
         self.show_title("貸出の履歴", "新しいものから 30 件まで")
         self.add_left_button("メニューに戻る", lambda: app.show(AdminMenuScreen))
 
-        # openpyxl があるときだけ Excel 保存のボタンを出す
-        try:
-            import openpyxl  # noqa: F401
-            self.save_button = self.add_right_button("Excel に保存", self.save_excel)
-        except ImportError:
-            pass
+        self.save_button = self.add_right_button("ファイルに保存", self.save_files)
 
         headers = ["貸出日時", "氏名", "返却予定", "状態"]
         widths = [220, 0, 220, 160]
@@ -296,12 +341,18 @@ class HistoryScreen(Screen):
             make_label(table, "まだ記録はありません。", color=SUB_TEXT_COLOR).grid(row=2, column=0, columnspan=len(headers),
                                                                               sticky="w", padx=8, pady=20)
 
-    def save_excel(self):
+    def save_files(self):
+        # 全件を CSV と Excel(openpyxl があれば)で exports/ に保存する
         try:
-            path, count = excel_export.export_to_excel(self.app.database, config.EXPORT_DIR)
+            csv_path, count = export.export_to_csv(self.app.database, config.EXPORT_DIR)
+            names = csv_path.name
+            if export.can_make_excel():
+                excel_path, count = export.export_to_excel(self.app.database, config.EXPORT_DIR)
+                names += " / " + excel_path.name
         except Exception as e:
             self.app.show_error(e)
             return
-        log.info("Excel に保存: %s", path)
+        log.info("履歴を保存: %s", names)
+        disable_button(self.save_button)
         self.save_button.configure(text="保存しました")
-        make_label(self.top_area, f"{count} 件を保存しました: {path.name}").pack(anchor="w", pady=(6, 0))
+        make_label(self.top_area, f"{count} 件を保存しました: {names}").pack(anchor="w", pady=(6, 0))

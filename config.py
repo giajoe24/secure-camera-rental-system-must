@@ -48,6 +48,6 @@ BACKUP_DIR = BASE_DIR / "backups"
 BACKUP_KEEP_DAYS = 14
 
 USE_ADMIN_SCREEN = True      # 管理画面(admin_screen.py)
-# 最初の管理者は python register_user.py admin 社員番号 で登録する
+# 管理者がまだいないときは、ホームの「管理者」から最初の管理者を登録する
 
-# Excel 出力は python excel_export.py で使う(openpyxl が必要)
+# 履歴の保存(export.py)は管理画面から。Excel も作るには openpyxl が必要

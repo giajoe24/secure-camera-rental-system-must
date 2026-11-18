@@ -1,7 +1,6 @@
 # 追加機能: DB のバックアップ(config.USE_BACKUP)
 # 起動時と1時間ごとに見て、今日の分がなければ backups/ にコピーを作る。
 # BACKUP_KEEP_DAYS 日より古いものは消す。
-#   python backup.py   今すぐ作る
 
 import logging
 import sqlite3
@@ -63,10 +62,3 @@ def start_daily_backup(app):
     backup_if_needed()
     app.after(60 * 60 * 1000, lambda: start_daily_backup(app))
 
-
-if __name__ == "__main__":
-    path = make_backup(date.today())
-    if path is None:
-        print("今日のバックアップはもうあります(または DB がまだありません)")
-    else:
-        print("バックアップを作りました:", path)
