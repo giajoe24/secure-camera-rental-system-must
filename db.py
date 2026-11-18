@@ -1,11 +1,27 @@
 # DB(SQLite)の読み書き
-# users: 利用者  rentals: 貸出の記録(returned_at が空なら貸出中)
+#
+# users: 利用者
+# logs : 操作の記録。追記するだけで、上書き・削除はしない
+#
+# 1回の貸出・返却で 2 行書く
+#   解錠したとき          step = "解錠"
+#   扉が閉まって施錠したとき step = "完了"
+#   (扉が開かれなかったとき step = "取り消し")
+# カメラが貸出中かどうかは「最後の完了の行が貸出か返却か」で決める。
+# 扉が閉まるまでは完了にしないので、扉を開けただけの記録が残っても貸出中にはならない。
 
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
 TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+BORROW = "貸出"
+RETURN = "返却"
+
+UNLOCK = "解錠"
+DONE = "完了"
+CANCEL = "取り消し"
 
 
 class RentalError(Exception):
@@ -81,12 +97,14 @@ class Database:
             )
         """)
         self.execute("""
-            CREATE TABLE IF NOT EXISTS rentals (
-                id          INTEGER PRIMARY KEY,
-                user_id     INTEGER NOT NULL REFERENCES users (id),
-                rented_at   TEXT NOT NULL,
-                due_at      TEXT NOT NULL,
-                returned_at TEXT
+            CREATE TABLE IF NOT EXISTS logs (
+                id      INTEGER PRIMARY KEY,
+                time    TEXT NOT NULL,
+                action  TEXT NOT NULL,   -- 貸出 / 返却
+                step    TEXT NOT NULL,   -- 解錠 / 完了 / 取り消し
+                user_id INTEGER NOT NULL REFERENCES users (id),   -- 操作した人
+                due_at  TEXT,            -- 返却予定(貸出のときだけ)
+                note    TEXT NOT NULL DEFAULT ''
             )
         """)
 
@@ -107,69 +125,135 @@ class Database:
     def find_user_by_card(self, card_id):
         return self.select_one("SELECT * FROM users WHERE card_id = ?", (normalize_card_id(card_id),))
 
-    # ---- 貸出・返却 ----
+    # ---- 記録を書く ----
 
-    def current_rental(self):
-        # 貸出中の記録(借りている人の名前つき)。なければ None
-        return self.select_one("""
-            SELECT rentals.*, users.name
-            FROM rentals JOIN users ON users.id = rentals.user_id
-            WHERE rentals.returned_at IS NULL
-        """)
-
-    def borrow(self, user, minutes, open_door, now=None):
-        # 記録 → 扉を開ける → commit の順。
-        # 記録に失敗したら扉は開かない。扉が開かなかったら記録は取り消し(rollback)。
+    def add_log(self, conn, action, step, user, due_at=None, note="", now=None):
         if now is None:
             now = datetime.now()
-        due = now + timedelta(minutes=minutes)
+        due_text = None
+        if due_at is not None:
+            due_text = due_at.strftime(TIME_FORMAT)
+        conn.execute(
+            "INSERT INTO logs (time, action, step, user_id, due_at, note) VALUES (?, ?, ?, ?, ?, ?)",
+            (now.strftime(TIME_FORMAT), action, step, user["id"], due_text, note),
+        )
 
+    def start(self, action, user, open_door, due_at=None, now=None):
+        # 「解錠」を記録して扉を開ける。
+        # 記録に失敗したら扉は開けない。扉が開かなかったら記録は取り消し(rollback)。
         conn = self.open()
         try:
             with conn:
-                rented = conn.execute("SELECT 1 FROM rentals WHERE returned_at IS NULL").fetchone()
-                if rented:
+                rental = self.find_current_rental(conn)
+                if action == BORROW and rental is not None:
                     raise RentalError("いまは借りられません", "ほかの人が借りています。")
+                if action == RETURN and rental is None:
+                    raise RentalError("返却するカメラがありません", "カメラは貸し出されていません。")
 
-                conn.execute(
-                    "INSERT INTO rentals (user_id, rented_at, due_at) VALUES (?, ?, ?)",
-                    (user["id"], now.strftime(TIME_FORMAT), due.strftime(TIME_FORMAT)),
-                )
+                self.add_log(conn, action, UNLOCK, user, due_at, now=now)
                 open_door()
         finally:
             conn.close()
 
-        return due
-
-    def return_camera(self, user, open_door, now=None):
-        # 借りた本人だけ返せる。返した記録(返却日時入り)を返す
-        if now is None:
-            now = datetime.now()
-        returned_at = now.strftime(TIME_FORMAT)
-
+    def finish(self, action, user, due_at=None, now=None):
+        # 扉が閉まって施錠したら呼ぶ
         conn = self.open()
         try:
             with conn:
-                rental = conn.execute(
-                    "SELECT * FROM rentals WHERE user_id = ? AND returned_at IS NULL",
-                    (user["id"],),
-                ).fetchone()
-                if rental is None:
-                    raise RentalError("返却するカメラがありません", "借りた人の社員証をかざしてください。")
-
-                conn.execute("UPDATE rentals SET returned_at = ? WHERE id = ?", (returned_at, rental["id"]))
-                open_door()
+                self.add_log(conn, action, DONE, user, due_at, now=now)
         finally:
             conn.close()
 
-        rental = dict(rental)
-        rental["returned_at"] = returned_at
+    def cancel(self, action, user, note, now=None):
+        # 扉が開かれなかったときなど
+        conn = self.open()
+        try:
+            with conn:
+                self.add_log(conn, action, CANCEL, user, note=note, now=now)
+        finally:
+            conn.close()
+
+    def close_unfinished(self):
+        # 起動したときに呼ぶ。完了も取り消しもされていない解錠が最後に残っていたら
+        # (途中で電源が切れたなど)、取り消しの行を足しておく
+        last = self.select_one("SELECT * FROM logs ORDER BY id DESC LIMIT 1")
+        if last is None or last["step"] != UNLOCK:
+            return None
+        user = {"id": last["user_id"]}
+        self.cancel(last["action"], user, "途中で止まったため(再起動)")
+        return last
+
+    # ---- 記録を読む ----
+
+    def find_current_rental(self, conn):
+        # 貸出中ならその貸出の行(借りた人の名前つき)、貸出中でなければ None
+        last = conn.execute("""
+            SELECT logs.*, users.name, users.employee_number
+            FROM logs JOIN users ON users.id = logs.user_id
+            WHERE logs.step = '完了' AND logs.action IN ('貸出', '返却')
+            ORDER BY logs.id DESC LIMIT 1
+        """).fetchone()
+        if last is None or last["action"] != BORROW:
+            return None
+
+        rental = dict(last)
+        rental["rented_at"] = last["time"]
+
+        # 延長(追加機能)の行があれば、いちばん新しい返却予定を使う
+        later_due = conn.execute(
+            "SELECT due_at FROM logs WHERE id > ? AND step = '完了' AND due_at IS NOT NULL ORDER BY id DESC LIMIT 1",
+            (last["id"],),
+        ).fetchone()
+        if later_due is not None:
+            rental["due_at"] = later_due["due_at"]
         return rental
 
-    def list_rentals(self):
-        # 新しい順
+    def current_rental(self):
+        conn = self.open()
+        try:
+            return self.find_current_rental(conn)
+        finally:
+            conn.close()
+
+    def list_logs(self):
+        # 記録をそのまま全部(新しい順)
         return self.select_all("""
-            SELECT rentals.*, users.employee_number, users.name
-            FROM rentals JOIN users ON users.id = rentals.user_id
-            ORDER BY rentals.id DESC
+            SELECT logs.*, users.employee_number, users.name
+            FROM logs JOIN users ON users.id = logs.user_id
+            ORDER BY logs.id DESC
         """)
+
+    def list_rentals(self):
+        # 完了した貸出と返却を組にした一覧(新しい順)
+        # それぞれ 借りた人、貸出日時、返却予定、返した人、返却日時(返していなければ None)
+        rows = self.select_all("""
+            SELECT logs.*, users.employee_number, users.name
+            FROM logs JOIN users ON users.id = logs.user_id
+            WHERE logs.step = '完了'
+            ORDER BY logs.id
+        """)
+
+        rentals = []
+        rental = None
+        for row in rows:
+            if row["action"] == BORROW:
+                rental = {
+                    "borrower_number": row["employee_number"],
+                    "borrower_name": row["name"],
+                    "rented_at": row["time"],
+                    "due_at": row["due_at"],
+                    "returner_number": None,
+                    "returner_name": None,
+                    "returned_at": None,
+                }
+                rentals.append(rental)
+            elif row["action"] == RETURN and rental is not None:
+                rental["returner_number"] = row["employee_number"]
+                rental["returner_name"] = row["name"]
+                rental["returned_at"] = row["time"]
+                rental = None
+            elif rental is not None and row["due_at"] is not None:
+                rental["due_at"] = row["due_at"]   # 延長(追加機能)
+
+        rentals.reverse()
+        return rentals

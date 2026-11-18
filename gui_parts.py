@@ -1,4 +1,11 @@
 # 画面で使う部品(色、フォント、ボタンなど)と、全画面の土台 Screen
+#
+# 7インチ(800×480)のタッチモニターに合わせている。
+#   ・ボタンは高さ 56px 以上(約 10mm。指で押しやすい大きさ)、ボタンどうしは 12px 以上あける
+#   ・文字は 16px 以上。背景との明るさの差(コントラスト比)は 4.5 以上
+#   ・押すボタンは青。赤はエラー、黄は警告、緑は完了だけに使う(安全色の意味とそろえる)
+#   ・状態は色だけでなく、必ず文字でも出す
+#   ・点滅やアニメーションは使わない
 
 import tkinter
 import tkinter.font
@@ -6,26 +13,32 @@ import tkinter.font
 import customtkinter
 
 # ---- 色 ----
-RED = "#DC0032"
-RED_WHEN_TOUCHED = "#B8002A"
-LIGHT_RED = "#FDECEF"
-TEXT_COLOR = "#202124"
-SUB_TEXT_COLOR = "#6B7280"
-LINE_COLOR = "#E5E7EB"
-FOOTER_COLOR = "#F3F4F6"
+BRAND_RED = "#DC0032"       # 上の線だけに使う
+BLUE = "#1E4FA3"            # 押すボタン(白文字とのコントラスト比 7.6)
+TEXT_COLOR = "#1F2328"
+SUB_TEXT_COLOR = "#59616B"  # 白地とのコントラスト比 6.3
+LINE_COLOR = "#D8DCE1"
 WHITE = "#FFFFFF"
-GRAY_BUTTON_COLOR = "#E5E7EB"
-GRAY_TEXT_COLOR = "#9CA3AF"
-WHITE_BUTTON_BORDER_COLOR = "#C9CDD3"
-ERROR_TEXT_COLOR = "#B3002A"
+FOOTER_COLOR = "#F2F4F6"
+DISABLED_COLOR = "#E4E7EB"
+DISABLED_TEXT_COLOR = "#59616B"
+BORDER_COLOR = "#B7BDC5"
+ERROR_TEXT_COLOR = "#A8001F"
+SELECTED_COLOR = "#E8EEF9"  # 選んだボタンの背景
 
 # 札の色 (文字, 背景)
-GREEN_TAG = ("#137A4B", "#EAF8F0")
-BLUE_TAG = ("#1D4ED8", "#EAF1FF")
-YELLOW_TAG = ("#8A5A00", "#FFF6DB")
-PINK_TAG = ("#B3002A", "#FDECEF")
+GREEN_TAG = ("#0F6B3E", "#E3F3EA")
+BLUE_TAG = ("#1E4FA3", "#E8EEF9")
+YELLOW_TAG = ("#7A4D00", "#FFF1CC")
+RED_TAG = ("#A8001F", "#FCE8EC")
 
 CIRCLED_NUMBERS = ["①", "②", "③", "④", "⑤"]
+
+# ---- 大きさ ----
+SCREEN_PADDING = 24
+FOOTER_HEIGHT = 80
+BUTTON_HEIGHT = 56
+TEXT_WIDTH = 750   # 長い文はこの幅で折り返す
 
 
 # ---- 日時の表示 ----
@@ -75,49 +88,53 @@ def make_font(size, bold=False):
 
 # ---- 部品 ----
 
-def make_label(parent, text, size=19, bold=False, color=TEXT_COLOR):
+def make_label(parent, text, size=17, bold=False, color=TEXT_COLOR):
     return customtkinter.CTkLabel(parent, text=text, font=make_font(size, bold), text_color=color,
-                                  anchor="w", justify="left")
+                                  anchor="w", justify="left", wraplength=TEXT_WIDTH)
 
 
 def make_tag(parent, text, colors):
     # 「貸出可能」などの札
     text_color, background = colors
-    return customtkinter.CTkLabel(parent, text=text, width=110, height=34, corner_radius=4,
-                                  fg_color=background, text_color=text_color, font=make_font(16, True))
+    return customtkinter.CTkLabel(parent, text=text, height=32, corner_radius=4, fg_color=background,
+                                  text_color=text_color, font=make_font(16, True))
 
 
-def make_red_button(parent, text, command, width=260, height=68):
+# タッチモニターでは、触ったボタンにホバーの色が残ってしまうので hover=False にしている
+
+def make_main_button(parent, text, command, width=200, height=BUTTON_HEIGHT):
+    # その画面で一番押してほしいボタン(青)
     return customtkinter.CTkButton(
-        parent, text=text, command=command, width=width, height=height, corner_radius=6,
-        fg_color=RED, hover_color=RED_WHEN_TOUCHED, text_color=WHITE,
-        text_color_disabled=GRAY_TEXT_COLOR, font=make_font(21, True),
+        parent, text=text, command=command, width=width, height=height, corner_radius=8, hover=False,
+        fg_color=BLUE, text_color=WHITE, text_color_disabled=DISABLED_TEXT_COLOR, font=make_font(20, True),
     )
 
 
-def make_white_button(parent, text, command, width=260, height=68):
+def make_sub_button(parent, text, command, width=160, height=BUTTON_HEIGHT):
+    # 「戻る」など(白地に枠)
     return customtkinter.CTkButton(
-        parent, text=text, command=command, width=width, height=height, corner_radius=6,
-        fg_color=WHITE, hover_color=GRAY_BUTTON_COLOR, border_width=2,
-        border_color=WHITE_BUTTON_BORDER_COLOR, text_color=TEXT_COLOR, font=make_font(21),
+        parent, text=text, command=command, width=width, height=height, corner_radius=8, hover=False,
+        fg_color=WHITE, border_width=2, border_color=BORDER_COLOR, text_color=TEXT_COLOR,
+        text_color_disabled=DISABLED_TEXT_COLOR, font=make_font(19),
     )
 
 
 def disable_button(button):
-    button.configure(state="disabled", fg_color=GRAY_BUTTON_COLOR)
+    button.configure(state="disabled", fg_color=DISABLED_COLOR)
 
 
-def enable_red_button(button):
-    button.configure(state="normal", fg_color=RED)
+def enable_main_button(button):
+    button.configure(state="normal", fg_color=BLUE)
 
 
 def show_as_selected(button, selected):
-    # 選んだボタンは薄い赤 + 赤い枠にする
+    # 選んだボタンは薄い青 + 太い青枠 + 太字にする(色だけに頼らない)
     if selected:
-        button.configure(fg_color=LIGHT_RED, border_color=RED, border_width=3, text_color=RED)
+        button.configure(fg_color=SELECTED_COLOR, border_color=BLUE, border_width=4, text_color=BLUE,
+                         font=make_font(21, True))
     else:
-        button.configure(fg_color=WHITE, border_color=WHITE_BUTTON_BORDER_COLOR, border_width=2,
-                         text_color=TEXT_COLOR)
+        button.configure(fg_color=WHITE, border_color=BORDER_COLOR, border_width=2, text_color=TEXT_COLOR,
+                         font=make_font(21))
 
 
 def make_line(parent, thickness=1, color=LINE_COLOR):
@@ -127,6 +144,7 @@ def make_line(parent, thickness=1, color=LINE_COLOR):
 
 # ---- 画面の土台 ----
 # 上から step_area(手順)、top_area(見出し)、content_area(中身)、footer(下のボタン)
+# 「戻る」は左下、「次へ進む」ボタンは右下に、どの画面でも同じ場所に置く
 
 class Screen(customtkinter.CTkFrame):
     idle_timeout = True   # 放っておいたらホームに戻すか
@@ -139,7 +157,7 @@ class Screen(customtkinter.CTkFrame):
         self.step_area = tkinter.Frame(self, bg=WHITE)
         self.step_area.pack(fill="x")
 
-        self.footer = customtkinter.CTkFrame(self, height=92, fg_color=FOOTER_COLOR, corner_radius=0)
+        self.footer = customtkinter.CTkFrame(self, height=FOOTER_HEIGHT, fg_color=FOOTER_COLOR, corner_radius=0)
         self.footer.pack(side="bottom", fill="x")
         self.footer.pack_propagate(False)  # ボタンで高さが変わらないように
 
@@ -147,61 +165,58 @@ class Screen(customtkinter.CTkFrame):
         self.footer_line.pack(side="bottom", fill="x")
 
         self.top_area = tkinter.Frame(self, bg=WHITE)
-        self.top_area.pack(fill="x", padx=40, pady=(22, 0))
+        self.top_area.pack(fill="x", padx=SCREEN_PADDING, pady=(14, 0))
 
         self.content_area = customtkinter.CTkFrame(self, fg_color="transparent")
-        self.content_area.pack(fill="both", expand=True, padx=40, pady=22)
+        self.content_area.pack(fill="both", expand=True, padx=SCREEN_PADDING, pady=12)
 
     def show_steps(self, names, current):
-        # ① 社員証 → ② 貸出時間 → … を出して、今の手順を赤くする
-        bar = tkinter.Frame(self.step_area, bg=WHITE, height=56)
+        # ① 社員証 → ② 貸出時間 → … を出して、今の手順を青の太字 + 下線にする
+        bar = tkinter.Frame(self.step_area, bg=WHITE, height=40)
         bar.pack(fill="x")
         bar.pack_propagate(False)
 
         row = tkinter.Frame(bar, bg=WHITE)
-        row.pack(side="left", fill="y", padx=40)
+        row.pack(side="left", fill="y", padx=SCREEN_PADDING)
 
         for i, name in enumerate(names):
             if i > 0:
-                make_label(row, "→", 17, color=SUB_TEXT_COLOR).pack(side="left", padx=10)
+                make_label(row, "→", 16, color=SUB_TEXT_COLOR).pack(side="left", padx=8)
 
             if i == current:
-                color = RED
-            elif i < current:
-                color = TEXT_COLOR
+                color = BLUE
             else:
                 color = SUB_TEXT_COLOR
 
             cell = tkinter.Frame(row, bg=WHITE)
             cell.pack(side="left", fill="y")
-            make_label(cell, f"{CIRCLED_NUMBERS[i]} {name}", 17, i == current, color).pack(expand=True)
+            make_label(cell, f"{CIRCLED_NUMBERS[i]} {name}", 16, i == current, color).pack(expand=True)
 
-            # 今の手順だけ下に赤い線
             if i == current:
-                make_line(cell, 4, RED).pack(side="bottom", fill="x")
+                make_line(cell, 3, BLUE).pack(side="bottom", fill="x")
             else:
-                make_line(cell, 4, WHITE).pack(side="bottom", fill="x")
+                make_line(cell, 3, WHITE).pack(side="bottom", fill="x")
 
         make_line(self.step_area).pack(fill="x")
 
     def show_title(self, title, note=None, color=TEXT_COLOR):
-        make_label(self.top_area, title, 26, True, color).pack(anchor="w")
+        make_label(self.top_area, title, 24, True, color).pack(anchor="w")
         if note:
-            make_label(self.top_area, note, color=SUB_TEXT_COLOR).pack(anchor="w", pady=(6, 0))
+            make_label(self.top_area, note, color=SUB_TEXT_COLOR).pack(anchor="w", pady=(4, 0))
 
     def show_footer(self):
-        # 帯を隠している画面(ホーム)で、あとから出すとき用
+        # 帯を隠している画面で、あとから出すとき用
         if self.footer.winfo_manager() == "":
             self.footer.pack(side="bottom", fill="x", before=self.footer_line)
 
     def add_left_button(self, text, command):
-        button = make_white_button(self.footer, text, command)
-        button.pack(side="left", padx=40)
+        button = make_sub_button(self.footer, text, command)
+        button.pack(side="left", padx=SCREEN_PADDING)
         return button
 
     def add_right_button(self, text, command):
-        button = make_red_button(self.footer, text, command)
-        button.pack(side="right", padx=40)
+        button = make_main_button(self.footer, text, command)
+        button.pack(side="right", padx=SCREEN_PADDING)
         return button
 
     def run_later(self, ms, function):
