@@ -1,14 +1,21 @@
-# 記録を Excel(.xlsx)にして exports/ に保存する(管理画面から使う)
+# 記録を Excel(.xlsx)にして exports/rental_log.xlsx に保存する
+# 貸出・返却が終わるたびに作り直すので、いつでも最新の記録が見られる。
+# このファイルはラズパイの中にあるので、見られるのはラズパイを触れる管理者だけ。
 #   シート「貸出一覧」 : 借りた人、貸出日時、返却予定、返した人、返却日時
 #   シート「操作の記録」: logs テーブルの中身をそのまま(解錠・完了・取り消し)
 
+import logging
+import os
 from datetime import datetime
 
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
 
+import config
 from db import parse_time
+
+log = logging.getLogger(__name__)
 
 HEADER_FILL = PatternFill("solid", fgColor="1E4FA3")
 HEADER_FONT = Font(bold=True, color="FFFFFF")
@@ -65,7 +72,7 @@ def log_rows(database):
     return rows
 
 
-def export_to_excel(database, output_dir):
+def export_to_excel(database, path):
     book = Workbook()
     book.remove(book.active)   # 最初からある空のシートは使わない
 
@@ -78,7 +85,16 @@ def export_to_excel(database, output_dir):
               [8, 18, 8, 10, 12, 16, 18, 30],
               log_rows(database))
 
-    output_dir.mkdir(exist_ok=True)
-    path = output_dir / datetime.now().strftime("rental_log_%Y%m%d_%H%M%S.xlsx")
-    book.save(path)
-    return path
+    # いったん別の名前で保存してから置き換える(途中で止まっても、壊れたファイルが残らないように)
+    path.parent.mkdir(exist_ok=True)
+    temp_path = path.with_suffix(".tmp")
+    book.save(temp_path)
+    os.replace(temp_path, path)
+
+
+def update_excel(database):
+    # 失敗しても貸出・返却は止めない(ログに残すだけ)
+    try:
+        export_to_excel(database, config.EXCEL_PATH)
+    except Exception:
+        log.exception("Excel の記録を更新できませんでした")

@@ -134,5 +134,23 @@ class DatabaseTest(unittest.TestCase):
         self.assertIsNone(self.db.close_unfinished())   # 2回目は何もしない
 
 
+    # ---- Excel ----
+
+    def test_excel_has_both_sheets(self):
+        from openpyxl import load_workbook
+
+        import export
+        self.borrow(self.yamada)
+        self.give_back(self.mori, NOW + timedelta(hours=1))
+        excel_path = Path(self.folder) / "rental_log.xlsx"
+        export.export_to_excel(self.db, excel_path)
+
+        book = load_workbook(excel_path)
+        self.assertEqual(book.sheetnames, ["貸出一覧", "操作の記録"])
+        self.assertEqual(book["貸出一覧"]["F2"].value, "森 航太郎")   # 返した人
+        self.assertEqual(book["操作の記録"].max_row, 5)              # 見出し + 4 行
+        os.remove(excel_path)
+
+
 if __name__ == "__main__":
     unittest.main()

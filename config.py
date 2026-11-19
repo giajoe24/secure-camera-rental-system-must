@@ -5,7 +5,7 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "data" / "camera_rental.sqlite3"
 LOG_PATH = BASE_DIR / "logs" / "camera_rental.log"
-EXPORT_DIR = BASE_DIR / "exports"   # Excel の保存先
+EXCEL_PATH = BASE_DIR / "exports" / "rental_log.xlsx"   # 記録の Excel(自動で更新される)
 
 CAMERA_NAME = "セキュアカメラ"
 

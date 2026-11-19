@@ -11,8 +11,8 @@ from datetime import datetime, timedelta
 
 import customtkinter
 
-import admin_screen
 import config
+import export
 from db import BORROW, RETURN, RentalError, parse_time
 from gui_parts import (BLUE_TAG, ERROR_TEXT_COLOR, GREEN_TAG, RED_TAG, SUB_TEXT_COLOR, TEXT_COLOR, WHITE,
                        YELLOW_TAG, Screen, disable_button, enable_main_button, format_date_time, format_minutes,
@@ -33,6 +33,7 @@ def can_use_lock(lock):
 class HomeScreen(Screen):
     def __init__(self, app):
         super().__init__(app)
+        self.footer.pack_forget()   # ホームには下のボタンがないので帯も出さない
         rental = app.database.current_rental()
 
         # カメラの状態(札の色と文字の両方で出す)
@@ -75,8 +76,6 @@ class HomeScreen(Screen):
         else:
             disable_button(borrow_button)
 
-        admin_screen.add_button_on_home(self)
-
     def start_borrow(self):
         self.app.show(ScanScreen, purpose=BORROW)
 
@@ -91,19 +90,14 @@ class ScanScreen(Screen):
 
     idle_timeout = False  # 読み取りの待ち時間で戻るので、こちらでは戻さない
 
-    def __init__(self, app, purpose=BORROW, steps=None, on_card=None):
-        # on_card: 管理画面用。指定されていたら、貸出・返却の代わりにこれを呼ぶ
+    def __init__(self, app, purpose):
         super().__init__(app)
         self.purpose = purpose
-        self.steps = steps
-        self.on_card = on_card
 
-        if steps is None:
-            if purpose == BORROW:
-                steps = BORROW_STEPS
-            else:
-                steps = RETURN_STEPS
-        self.show_steps(steps, 0)
+        if purpose == BORROW:
+            self.show_steps(BORROW_STEPS, 0)
+        else:
+            self.show_steps(RETURN_STEPS, 0)
         self.show_title("社員証をカードリーダーにかざしてください", "読み取るまで、社員証を動かさないでください。")
 
         self.remaining_label = make_label(self.content_area, "", color=SUB_TEXT_COLOR)
@@ -140,14 +134,10 @@ class ScanScreen(Screen):
             self.use_card(card_id)
 
     def scan_again(self):
-        self.app.show(ScanScreen, purpose=self.purpose, steps=self.steps, on_card=self.on_card)
+        self.app.show(ScanScreen, purpose=self.purpose)
 
     def use_card(self, card_id):
         try:
-            if self.on_card is not None:
-                self.on_card(self.app, card_id)
-                return
-
             user = self.app.database.find_user_by_card(card_id)
             if user is None:
                 log.info("未登録の社員証: %s", card_id)
@@ -385,6 +375,7 @@ class DoorScreen(Screen):
             self.app.show_error(e)
             return
         log.info("%sの完了(施錠を確認): %s", self.action, self.user["employee_number"])
+        export.update_excel(self.app.database)
         self.app.show(DoneScreen, action=self.action, due_at=self.due_at)
 
     def give_up(self):
@@ -394,6 +385,7 @@ class DoorScreen(Screen):
             self.app.show_error(e)
             return
         log.info("%sの取り消し(扉が開かれなかった): %s", self.action, self.user["employee_number"])
+        export.update_excel(self.app.database)
         self.app.show(MessageScreen, title=f"{self.action}を取り消しました",
                       message="扉が開かれなかったため、取り消しました。もう一度最初からやり直してください。",
                       tag="取り消し")

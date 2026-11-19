@@ -14,7 +14,7 @@ from card_reader import CardReaderError
 from db import RentalError
 from gui_parts import BRAND_RED, SCREEN_PADDING, SUB_TEXT_COLOR, WHITE, format_date_time, make_label, make_line
 from lock import LockError
-from screens import HomeScreen, MessageScreen, ScanScreen
+from screens import HomeScreen, MessageScreen
 
 log = logging.getLogger(__name__)
 
@@ -98,10 +98,6 @@ class App(customtkinter.CTk):
 
     def go_home(self):
         self.show(HomeScreen)
-
-    def scan_card(self, steps, on_card):
-        # 管理画面などで使う。社員証を読んで、読めたら on_card(app, カードID) を呼ぶ
-        self.show(ScanScreen, steps=steps, on_card=on_card)
 
     def open_door(self):
         self.lock.open()
