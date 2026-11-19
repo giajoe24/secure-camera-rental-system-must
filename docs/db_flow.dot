@@ -1,0 +1,63 @@
+// DB のフロー(dot -Tpng db_flow.dot -o db_flow.png で画像にする)
+// 左: いつ  →  真ん中: db.py の関数  →  右: テーブル  →  Excel
+digraph dbflow {
+  graph [fontname="Noto Sans CJK JP", rankdir=TB, nodesep=0.25, ranksep=0.7, bgcolor=white, pad=0.3, newrank=true];
+  node  [fontname="Noto Sans CJK JP", fontsize=11, shape=box, style="rounded,filled", fillcolor="#FFFFFF", color="#8A939C", width=2.2];
+  edge  [fontname="Noto Sans CJK JP", fontsize=10, color="#59616B"];
+
+    w_noopen [label="30秒 扉が開かない\n(DoorScreen)"];
+    w_close  [label="扉が閉まった\n(DoorScreen)"];
+    w_press  [label="「借りる」「返す」\n(確認画面)"];
+    w_boot   [label="main.py の起動"];
+    w_home   [label="ホームを出す / かざした"];
+    w_scan   [label="社員証をかざした\n(ScanScreen)"];
+    w_reg    [label="register.py"];
+
+    f_cancel  [label="cancel\n「取り消し」を追加", fillcolor="#FCE8EC", color="#A8001F"];
+    f_finish  [label="finish\n「完了」を追加", fillcolor="#E3F3EA", color="#0F6B3E"];
+    f_start   [label="start\n① 貸出中か確かめる\n② 「解錠」を追加\n③ lock.open()\n④ commit\n(③が失敗したら rollback)", fillcolor="#FFF1CC", color="#7A4D00"];
+    f_unfin   [label="close_unfinished\n最後の行が「解錠」なら\n「取り消し」を追加"];
+    f_current [label="current_rental\n最後の「完了」が貸出か?"];
+    f_find    [label="find_user_by_card"];
+    f_add     [label="add_user"];
+
+    logs  [shape=plain, label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4" BGCOLOR="#E8EEF9" COLOR="#1E4FA3"><TR><TD BGCOLOR="#1E4FA3"><FONT COLOR="white"><B>logs(操作の記録)</B><BR/><FONT POINT-SIZE="10">追加するだけ・上書きしない</FONT></FONT></TD></TR><TR><TD ALIGN="LEFT">id</TD></TR><TR><TD ALIGN="LEFT">time(日時)</TD></TR><TR><TD ALIGN="LEFT">action(貸出 / 返却)</TD></TR><TR><TD ALIGN="LEFT">step(解錠 / 完了 / 取り消し)</TD></TR><TR><TD ALIGN="LEFT">user_id(操作した人)</TD></TR><TR><TD ALIGN="LEFT">due_at(返却予定)</TD></TR><TR><TD ALIGN="LEFT">note(メモ)</TD></TR></TABLE>>];
+    users [shape=plain, label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4" BGCOLOR="#E8EEF9" COLOR="#1E4FA3"><TR><TD BGCOLOR="#1E4FA3"><FONT COLOR="white"><B>users(利用者)</B></FONT></TD></TR><TR><TD ALIGN="LEFT">id</TD></TR><TR><TD ALIGN="LEFT">employee_number(社員番号)</TD></TR><TR><TD ALIGN="LEFT">name(氏名)</TD></TR><TR><TD ALIGN="LEFT">card_id(カードID)</TD></TR></TABLE>>];
+
+  // 列の見出し
+  h1 [label="いつ", shape=plaintext, fontsize=14, style=""];
+  h2 [label="db.py の関数", shape=plaintext, fontsize=14, style=""];
+  h3 [label="DB(data/camera_rental.sqlite3)", shape=plaintext, fontsize=14, style=""];
+  h1 -> h2 -> h3 [style=invis];
+  {rank=same; h1; w_noopen; w_close; w_press; w_boot; w_home; w_scan; w_reg;}
+  {rank=same; h2; f_cancel; f_finish; f_start; f_unfin; f_current; f_find; f_add;}
+  {rank=same; h3; logs; users;}
+
+  f_export [label="export.py\nlist_rentals / list_logs で\n貸出と返却を組にする"];
+  excel    [label="exports/rental_log.xlsx\n(貸出一覧 / 操作の記録)", fillcolor="#F2F4F6"];
+
+  // いつ → 関数
+  w_noopen -> f_cancel;
+  w_close  -> f_finish;
+  w_press  -> f_start;
+  w_boot   -> f_unfin;
+  w_home   -> f_current;
+  w_scan   -> f_find;
+  w_reg    -> f_add;
+
+  // 関数 → テーブル(太い線 = 書く、細い点線 = 読む)
+  f_cancel  -> logs  [label="追加", penwidth=2];
+  f_finish  -> logs  [label="追加", penwidth=2];
+  f_start   -> logs  [label="追加", penwidth=2];
+  f_unfin   -> logs  [label="追加", penwidth=2];
+  f_current -> logs  [label="読む", style=dashed];
+  f_find    -> users [label="読む", style=dashed];
+  f_add     -> users [label="追加", penwidth=2];
+  logs -> users [label="user_id で\nつながる", style=dotted, arrowhead=none, constraint=false];
+
+  // 書いたあと Excel を作り直す
+  logs -> f_export [label="完了・取り消しの\nたびに", style=dashed];
+  f_export -> excel;
+
+
+}
