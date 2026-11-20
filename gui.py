@@ -101,7 +101,7 @@ class App(customtkinter.CTk):
     def go_home(self):
         self.show(HomeScreen)
 
-    def open_door(self):
+    def unlock(self):
         self.lock.open()
 
     def close(self):
